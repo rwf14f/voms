@@ -25,7 +25,6 @@
  *********************************************************************/
 
 #include "config.h"
-#include "replace.h"
 
 #include "options.h"
 #include "data.h"
@@ -109,9 +108,9 @@ bool quiet = false;
 
 extern "C" {
   
-static int (*pw_cb)() = NULL;
+static pem_password_cb *pw_cb = NULL;
 
-static int pwstdin_callback(char * buf, int num, UNUSED(int w)) 
+static int pwstdin_callback(char * buf, int num, UNUSED(int w), UNUSED(void *u))
 {
   int i;
   
@@ -176,10 +175,6 @@ Fake::Fake(int argc, char ** argv) :   confile(conf_file_name),
                                        vomslife(-1), proxyver(0),
                                        pathlength(1), verify(false), 
                                        noregen(false), version(0),
-#ifdef CLASS_ADD
-                                       class_add_buf(NULL),
-                                       class_add_buf_len(0),
-#endif					   
                                        ucert(NULL), upkey(NULL), cert_chain(NULL),
                                        aclist(NULL), voID(""),
                                        hostcert(""), hostkey(""),
@@ -236,7 +231,7 @@ Fake::Fake(int argc, char ** argv) :   confile(conf_file_name),
     "    -proxyver <n>                  Version of proxy certificate.\n" \
     "    -rfc                           Create RFC-conforming proxies (synonim of --proxyver 4)\n"             
     "    -noregen                       Doesn't regenerate a new proxy for the connection.\n" \
-    "    -separate <file>               Saves the informations returned by the server on file <file>.\n" \
+    "    -separate <file>               Saves the information returned by the server on file <file>.\n" \
     "    -hostcert <file>               Fake host certificate.\n" \
     "    -hostkey <file>                Fake host private key.\n" \
     "    -fqan <string>                 String to include in the AC as the granted FQAN.\n" \
@@ -321,9 +316,6 @@ Fake::Fake(int argc, char ** argv) :   confile(conf_file_name),
     {"acextension",     1, (int *)&acextensions,OPT_MULTI},
     {"selfsigned",      0, (int *)&selfsigned,  OPT_BOOL},
     {"ga",              1, (int *)&galist,      OPT_MULTI},
-#ifdef CLASS_ADD
-    {"classadd",        1, (int *)class_add_buf,OPT_STRING},
-#endif
     {0, 0, 0, 0}
   };
 
@@ -431,7 +423,7 @@ Fake::Fake(int argc, char ** argv) :   confile(conf_file_name),
   /* allow password from stdin */
 
   if(pwstdin)
-    pw_cb = (int (*)())(pwstdin_callback);
+    pw_cb = pwstdin_callback;
 
   /* with --debug prints configuration files used */
 
@@ -872,7 +864,7 @@ bool Fake::pcdInit() {
   int status = false;
 
   ERR_load_prxyerr_strings(0);
-  SSLeay_add_ssl_algorithms();
+  SSL_library_init();
   PKCS12_PBE_add();
   
   BIO * bio_err = NULL;

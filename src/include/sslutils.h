@@ -57,55 +57,6 @@ EXTERN_C_BEGIN
 #include <time.h>
 #include "openssl/crypto.h"
 
-
-
-#if SSLEAY_VERSION_NUMBER < 0x0090581fL
-#define RAND_add(a,b,c) RAND_seed(a,b)
-#define RAND_status() 1
-#endif
-
-#if SSLEAY_VERSION_NUMBER >= 0x00904100L
-/* Support both OpenSSL 0.9.4 and SSLeay 0.9.0 */
-#define OPENSSL_PEM_CB(A,B)  A, B
-#else
-#define RAND_add(a,b,c) RAND_seed(a,b)
-#define OPENSSL_PEM_CB(A,B)  A
-
-#define STACK_OF(A) STACK
-
-#define sk_X509_num  sk_num
-#define sk_X509_value  (X509 *)sk_value
-#define sk_X509_push(A, B) sk_push(A, (char *) B)
-#define sk_X509_insert(A,B,C)  sk_insert(A, (char *) B, C)
-#define sk_X509_delete  sk_delete
-#define sk_X509_new_null sk_new_null
-#define sk_X509_pop_free sk_pop_free
-
-#define sk_X509_NAME_ENTRY_num  sk_num
-#define sk_X509_NAME_ENTRY_value  (X509_NAME_ENTRY *)sk_value
-
-#define sk_SSL_CIPHER_num  sk_num
-#define sk_SSL_CIPHER_value  (SSL_CIPHER*)sk_value
-#define sk_SSL_CIPHER_insert(A,B,C)  sk_insert(A, (char *) B, C)
-#define sk_SSL_CIPHER_delete  sk_delete
-#define sk_SSL_CIPHER_push(A, B) sk_push(A, (char *) B)
-#define sk_SSL_CIPHER_shift(A) sk_shift(A)
-#define sk_SSL_CIPHER_dup(A) sk_dup(A)
-#define sk_SSL_CIPHER_unshift(A, B) sk_unshift(A, (char *) B)
-#define sk_SSL_CIPHER_pop(A) sk_pop(A)
-#define sk_SSL_CIPHER_delete_ptr(A, B) sk_delete_ptr(A, B)
-
-#define sk_X509_EXTENSION_num sk_num
-#define sk_X509_EXTENSION_value (X509_EXTENSION *)sk_value
-#define sk_X509_EXTENSION_push(A, B) sk_push(A, (char *) B)
-#define sk_X509_EXTENSION_new_null sk_new_null
-#define sk_X509_EXTENSION_pop_free sk_pop_free
-
-#define sk_X509_REVOKED_num sk_num
-#define sk_X509_REVOKED_value (X509_REVOKED*)sk_value
-
-#endif
-
 #include "openssl/ssl.h"
 #include "openssl/err.h"
 #include "openssl/bio.h"
@@ -129,18 +80,6 @@ EXTERN_C_BEGIN
 /* This is added after the CA name hash to make the policy filename */
 #define SIGNING_POLICY_FILE_EXTENSION   ".signing_policy"
 
-#ifdef WIN32
-#define GSI_REGISTRY_DIR "software\\Globus\\GSI"
-#define X509_DEFAULT_CERT_DIR   ".globus\\certificates"
-#define X509_DEFAULT_USER_CERT  ".globus\\usercert.pem"
-#define X509_DEFAULT_USER_CERT_P12  ".globus\\usercert.p12"
-#define X509_DEFAULT_USER_CERT_P12_GT  ".globus\\usercred.p12"
-#define X509_DEFAULT_USER_KEY   ".globus\\userkey.pem"
-#define X509_INSTALLED_CERT_DIR "share\\certificates"
-#define X509_INSTALLED_HOST_CERT_DIR "NEEDS_TO_BE_DETERMINED"
-#define X509_DEFAULT_HOST_CERT  "NEEDS_TO_BE_DETERMINED"
-#define X509_DEFAULT_HOST_KEY   "NEEDS_TO_BE_DETERMINED"
-#else
 #define X509_DEFAULT_CERT_DIR   ".globus/certificates"
 #define X509_DEFAULT_USER_CERT  ".globus/usercert.pem"
 #define X509_DEFAULT_USER_CERT_P12  ".globus/usercert.p12"
@@ -150,7 +89,6 @@ EXTERN_C_BEGIN
 #define X509_INSTALLED_HOST_CERT_DIR "/etc/grid-security/certificates"
 #define X509_DEFAULT_HOST_CERT  "/etc/grid-security/hostcert.pem"
 #define X509_DEFAULT_HOST_KEY   "/etc/grid-security/hostkey.pem"
-#endif
 
 /*
  * To allow the use of the proxy_verify_callback with 
@@ -177,25 +115,7 @@ EXTERN_C_BEGIN
 /* Location relative to ERR_LIB_USER where PRXYERR library will be stored */
 #define ERR_USER_LIB_PRXYERR_NUMBER     ERR_LIB_USER
 
-/*
- * Use the SSLeay error facility with the ERR_LIB_USER
- */
-
 #define PRXYerr(f,r) ERR_PUT_error(ERR_USER_LIB_PRXYERR_NUMBER,(f),(r),__FILE__,__LINE__)
-
-/* 
- * SSLeay 0.9.0 added the error_data feature. We may be running
- * with 0.8.1 which does not have it, if so, define a dummy
- * ERR_add_error_data and ERR_get_error_line_data
-        
-*/
-
-#if SSLEAY_VERSION_NUMBER < 0x0900
-void ERR_add_error_data( VAR_PLIST( int, num ) );
-
-unsigned long ERR_get_error_line_data(char **file,int *line,
-                                      char **data, int *flags);
-#endif
 
 void
 ERR_set_continue_needed(void);
@@ -302,10 +222,6 @@ ERR_set_continue_needed(void);
 #define PRXYERR_R_ERROR_BUILDING_SUBJECT                 PRXYERR_R_BASE + 68
 
 
-
-/* NOTE: Don't go over 1500 here or will conflict with errors in scutils.h */
-
-
 /**********************************************************************
                                Type definitions
 **********************************************************************/
@@ -354,7 +270,7 @@ int proxy_load_user_cert_and_key_pkcs12(const char *user_cert,
                                         X509 **cert,
                                         STACK_OF(X509) **stack,
                                         EVP_PKEY **pkey,
-                                        int (*pw_cb) ());
+                                        pem_password_cb *pw_cb);
 
 int
 proxy_get_filenames(
@@ -369,7 +285,7 @@ int
 proxy_load_user_cert(
     const char *                        user_cert,
     X509 **                             certificate,
-    int                                 (*pw_cb)(),
+    pem_password_cb *                   pw_cb,
     unsigned long *                     hSession);
 
 int
@@ -377,7 +293,7 @@ proxy_load_user_key(
     EVP_PKEY **                         private_key,
     X509 * ucert,
     const char *                        user_key,
-    int                                 (*pw_cb)(),
+    pem_password_cb *                   pw_cb,
     unsigned long *                     hSession);
 
 void
@@ -400,11 +316,19 @@ int
 proxy_check_proxy_name(
     X509 *);
 
-int 
+#if OPENSSL_VERSION_NUMBER < 0x40000000L
+int
 proxy_check_issued(
     X509_STORE_CTX *                    ctx,
     X509 *                              x,
     X509 *                              issuer);
+#else
+int
+proxy_check_issued(
+    X509_STORE_CTX *                    ctx,
+    const X509 *                        x,
+    const X509 *                        issuer);
+#endif
 
 int
 proxy_verify_certchain(
@@ -495,10 +419,6 @@ int
 proxy_get_base_name(
     X509_NAME *                         subject);
 
-X509_EXTENSION *
-proxy_extension_class_add_create(
-    void *                              buffer, 
-    size_t                              length);
 /*
  * SSLeay does not have a compare time function
  * So we add a convert to time_t function
@@ -514,7 +434,7 @@ int PRIVATE determine_filenames(char **cacert, char **certdir, char **outfile,
                                 char **certfile, char **keyfile, int noregen);
 int load_credentials(const char *certname, const char *keyname,
                              X509 **cert, STACK_OF(X509) **stack, EVP_PKEY **key,
-                             int (*callback)());
+                             pem_password_cb *callback);
 int PRIVATE load_certificate_from_file(FILE *file, X509 **cert, 
                                        STACK_OF(X509) **stack);
 

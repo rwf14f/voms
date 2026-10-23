@@ -40,7 +40,7 @@ AC_DEFUN([AC_BUILD_PARTS],
       case "$withval" in
         yes) build_clients="yes" ;;
         no)  build_clients="no" ;;
-        *) AC_MSG_ERROR([bad value $withval for --with-client]) ;;
+        *) AC_MSG_ERROR([bad value $withval for --with-clients]) ;;
       esac
     ],
     [ build_clients="$build_all" ])
@@ -105,79 +105,6 @@ AC_DEFUN([AC_BUILD_PARTS],
   AM_CONDITIONAL(BUILD_CLIENTS,    test x$build_clients = xyes)
   AM_CONDITIONAL(BUILD_SERVER,     test x$build_server = xyes)
   AM_CONDITIONAL(BUILD_CONFIG,     test x$build_config = xyes)
-])
-
-# AC_OPENSSL checks system openssl availability
-# ---------------------------------------------
-AC_DEFUN([AC_OPENSSL],
-[
-  AC_ARG_WITH(openssl_prefix,
-              [  --with-openssl-prefix=PFX    prefix where OpenSSL is installed. (/usr)],
-              [with_openssl_prefix="$withval"],
-              [with_openssl_prefix=/usr])
-
-  if test "x$with_openssl_prefix" = "x/usr" ; then
-    AC_CHECK_LIB(crypto, ERR_print_errors_fp, [found=yes], [found=no])
-
-    if test "x$found" = "xyes" ; then
-	OPENSSL_LIBS="-lcrypto -lssl"
-	NO_GLOBUS_FLAGS=""
-    fi
-  else
-    SAVE_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-    LD_LIBRARY_PATH="$with_openssl_prefix/lib"
-
-    AC_LANG_PUSH(C)
-    AC_CHECK_LIB(crypto, ERR_print_errors_fp, [found=yes], [found=no])
-    AC_LANG_POP(C)  
-    NO_GLOBUS_FLAGS="-I$with_openssl_prefix/include"
-
-    if test "x$found" = "xyes"; then
-      OPENSSL_LIBS="-L$with_openssl_prefix/lib -lcrypto -lssl"
-      AC_MSG_CHECKING([for system OpenSSL version])
-      cat >conftest.h <<HERE
-#include <openssl/opensslv.h>
-OPENSSL_VERSION_TEXT
-HERE
-      openssl_version=`$CPP $NO_GLOBUS_FLAGS -o - -P conftest.h`
-      AC_MSG_RESULT($openssl_version)
-      rm -f conftest.h
-    fi
-    LD_LIBRARY_PATH="$SAVE_LD_LIBRARY_PATH"
-  fi
-
-  SAVE_CFLAGS=$CFLAGS
-  CFLAGS="$CFLAGS -Werror"
-  AC_MSG_CHECKING(if asn1.h functions need const)
-  AC_TRY_COMPILE(
-	[
-	#include <openssl/asn1.h>
-	],
-	[
-	char **pp;
-	long length;
-	ASN1_PRINTABLESTRING *p;
-
-	(void)M_d2i_ASN1_PRINTABLESTRING(&p, pp, length);
-        ],
-	[ac_need_const="no"],
-	[ac_need_const="yes"])
-  CFLAGS="$SAVE_CFLAGS"
-
-  AC_MSG_RESULT($ac_need_const)
-
-  AC_SUBST(OPENSSL_LIBS)
-  AC_SUBST(NO_GLOBUS_FLAGS)
-
-  if test "x$ac_need_const" = "xyes" ; then
-    AC_DEFINE(NEEDCONST, 1, [Define to 1 if openssl needs "consted" parameters])
-  fi
-
-  AH_BOTTOM([#if defined(NEEDCONST)
-#define MAYBECONST const
-#else
-#define MAYBECONST
-#endif])
 ])
 
 # AC_COMPILER add switch to enable debug and warning
@@ -438,51 +365,6 @@ AC_DEFUN([PUT_PRIVATES],
 
 AC_DEFUN([AC_TESTSUITE],
 [
-  AC_ARG_WITH(report-dir,
-    [  --with-report-dir    Set reportdir for testsuite],
-    [with_reportdir="$withval"],
-    [with_reportdir="$HOME/reports"])
-
-  AC_ARG_WITH(scratch-dir,
-    [  --with-scratch-dir   Set scratchdir for testsuite],
-    [with_scratchdir="$withval"],
-    [with_scratchdir="/tmp"])
-
-  AC_ARG_WITH(dbuser,
-    [  --with-dbuser        Set DB user for testsuite],
-    [with_dbuser="$withval"],
-    [with_dbuser="root"])
-
-  AC_ARG_WITH(dbpwd,
-    [  --with-dbpwd         Set DB password for testsuite],
-    [with_dbpwd="$withval"],
-    [with_dbpwd=""])
-
-  AC_ARG_WITH(mysqlconf,
-    [  --with-mysqlconf     Set DB password for testsuite],
-    [with_mysqlconf="$withval"],
-    [with_mysqlconf=""])
-
-  AC_ARG_ENABLE(oracle-tests,
-    [  --enable-oracle-tests  Do tests against Oracle DB],
-    [ case "$enableval" in
-      yes) enable_oracletests="yes" ;;
-      no)  enable_oracletests="no" ;;
-      *) AC_MSG_ERROR([bad value $(enableval) for --enable-oracle-tests]) ;;
-      esac
-    ],
-    [ enable_oracletests="no"])
-
-  AC_ARG_ENABLE(mysql-tests,
-    [  --enable-mysql-tests  Do tests against MySQL DB],
-    [ case "$enableval" in
-      yes) enable_mysqltests="yes" ;;
-      no)  enable_mysqltests="no" ;;
-      *) AC_MSG_ERROR([bad value $(enableval) for --enable-mysql-tests]) ;;
-      esac
-    ],
-    [ enable_mysqltests="yes"])
-
   AC_ARG_ENABLE(coverage,
     [  --enable-coverage Enable getting coverage info on the testsuite execution],
     [
@@ -499,11 +381,6 @@ AC_DEFUN([AC_TESTSUITE],
      CXXFLAGS="$CXXFLAGS -fprofile-arcs -ftest-coverage"
      LDFLAGS="$LDFLAGS -lgcov"
   fi
-
-  AC_ARG_WITH(cobertura,
-	      [  --with-cobertura=PFX    prefix where cobertura is placed (no default)],
-	      [with_cobertura_prefix="$withval"],
-	      [with_cobertura_prefix="no"])
 
   AC_ARG_WITH(valgrind,
         [  --with-valgrind=PFX     Also test memory leaks with valgrind],
@@ -527,17 +404,8 @@ AC_DEFUN([AC_TESTSUITE],
      AC_MSG_RESULT($with_valgrind.)
   fi
 
-  AM_CONDITIONAL(USE_COBERTURA, test ! x$with_cobertura_prefix = xno)
   AC_SUBST(with_valgrind)
-  AC_SUBST(with_reportdir)
-  AC_SUBST(with_scratchdir)
-  AC_SUBST(with_dbuser)
-  AC_SUBST(with_dbpwd)
-  AC_SUBST(with_mysqlconf)
-  AC_SUBST(enable_oracletests)
-  AC_SUBST(enable_mysqltests)
   AC_SUBST(enable_coverage)
-  AC_SUBST(with_cobertura_prefix)
 ])
 
 dnl This macro written by:

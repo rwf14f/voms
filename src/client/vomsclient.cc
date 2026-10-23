@@ -43,7 +43,6 @@ extern "C" {
   
 #include "listfunc.h"
 #include "credentials.h"
-#include "replace.h"
 #include "doio.h"
 
 #include <openssl/pkcs12.h>
@@ -53,6 +52,9 @@ extern "C" {
 #include <sstream>
 #include <algorithm>
 #include <string>
+#include <random>
+#include <cassert>
+#include <memory>
 
 #include "options.h"
 #include "vomsxml.h"
@@ -63,23 +65,15 @@ extern "C" {
 #include "vomsclient.h"
 #include "fqan.h"
 #include "contact.hpp"
+#include "asn1_utils.h"
 
 
 extern "C" 
 {
-  //#include "myproxycertinfo.h"
 #include "vomsproxy.h"
 }
 
 #include "init.h"
-
-#ifndef VOMS_MAYBECONST
-#if defined(D2I_OF)
-#define VOMS_MAYBECONST const
-#else
-#define VOMS_MAYBECONST
-#endif
-#endif
 
 static AC *getAC(const std::string& data);
 
@@ -100,10 +94,10 @@ bool dontverifyac = false;
 
 extern "C" {
   
-static int (*pw_cb)() = NULL;
+static pem_password_cb *pw_cb = NULL;
 
 
-static int pwstdin_callback(char * buf, int num, UNUSED(int w)) 
+static int pwstdin_callback(char * buf, int num, UNUSED(int w), UNUSED(void *u))
 {
   int i;
   
@@ -120,42 +114,10 @@ static int pwstdin_callback(char * buf, int num, UNUSED(int w))
   }
   return i;	
 }
-  
-static void kpcallback(int p, UNUSED(int n), UNUSED(void* v))
-{
-  char c='B';
-    
-  if (quiet) return;
-    
-  if (p == 0) c='.';
-  if (p == 1) c='+';
-  if (p == 2) c='*';
-  if (p == 3) c='\n';
-  if (!debug) c = '.';
-  fputc(c,stderr);
-}
-  
+
 extern int proxy_verify_cert_chain(X509 * ucert, STACK_OF(X509) * cert_chain, proxy_verify_desc * pvd);
 extern void proxy_verify_ctx_init(proxy_verify_ctx_desc * pvxd);
 }
-
-
-class rand_wrapper 
-{
-
-public:
-  
-  rand_wrapper(unsigned int seed)
-  {
-    srand(seed);
-  }
-
-  UNUSED(ptrdiff_t operator() (ptrdiff_t max))
-  {
-    return static_cast<ptrdiff_t>(rand() % max);
-  }
-
-};
 
 Client::Client(int argc, char ** argv) :
                                          ignorewarn(false),
@@ -179,10 +141,6 @@ Client::Client(int argc, char ** argv) :
                                          verify(false),
                                          noregen(false),
                                          version(0),
-#ifdef CLASS_ADD
-                                         class_add_buf(NULL),
-                                         class_add_buf_len(0),
-#endif 
                                          aclist(NULL),
                                          voID(""),
                                          listing(false),
@@ -262,7 +220,7 @@ Client::Client(int argc, char ** argv) :
       "    -globus <version>              Globus version. (MajorMinor)\n" \
       "    -proxyver                      Version of proxy certificate.\n" \
       "    -noregen                       Use existing proxy certificate to connect to server and sign the new proxy.\n" \
-      "    -separate <file>               Saves the informations returned by the server on file <file>.\n" \
+      "    -separate <file>               Saves the information returned by the server on file <file>.\n" \
       "    -ignorewarn                    Ignore warnings.\n" \
       "    -failonwarn                    Treat warnings as errors.\n" \
       "    -list                          Show all available attributes.\n" \
@@ -316,9 +274,6 @@ Client::Client(int argc, char ** argv) :
       {"list",            0, (int *)&listing,     OPT_BOOL},
       {"rfc",             0, (int *)&rfc,         OPT_BOOL},
       {"old",             0, (int *)&old,         OPT_BOOL},
-#ifdef CLASS_ADD
-      {"classadd",        1, (int *)class_add_buf,OPT_STRING},
-#endif
       {"timeout",         1,        &timeout,     OPT_NUM},
       {"includeac",       1, (int *)&acfile,      OPT_STRING},
       {"dont-verify-ac",  0, (int *)&dontverifyac,OPT_BOOL},
@@ -477,7 +432,7 @@ Client::Client(int argc, char ** argv) :
     exit(1);
   }
 
-  Print(DEBUG) << "Number of bits in key :" << bits << std::endl; 
+  Print(DEBUG) << "Number of bits in key: " << bits << std::endl; 
   
   /* parse valid options */
 
@@ -490,7 +445,7 @@ Client::Client(int argc, char ** argv) :
   /* allow password from stdin */
   
   if (pwstdin)
-    pw_cb = (int (*)())(pwstdin_callback);
+    pw_cb = pwstdin_callback;
 
 
   /* file used */
@@ -601,9 +556,7 @@ void Client::CleanAll()
   delete v;
 
   OBJ_cleanup();
-
-#warning if X509V3_EXT_cleanup is called valgrind moves some "still reachable" to "definitely lost"!
-  // X509V3_EXT_cleanup();
+  X509V3_EXT_cleanup();
 }
 
 Client::~Client() 
@@ -650,10 +603,8 @@ int Client::Run()
     /* find servers for that vo */
     std::vector<contactdata> servers;
     servers = v->FindByAlias(contact.nick());
-    rand_wrapper rd(time(0));
-    random_shuffle(servers.begin(), 
-                   servers.end(),
-                   rd);
+    std::default_random_engine rd{std::random_device{}()};
+    std::shuffle(servers.begin(), servers.end(), rd);
 
     std::string vo = (contact.vo().empty() ? servers[0].vo : contact.vo());
 
@@ -691,8 +642,6 @@ int Client::Run()
 
       /* create a temporary proxy to contact the server */  
       if (!noregen) {
-        Print(INFO) << "Creating temporary proxy " << std::flush;
-        Print(DEBUG) << "to " << proxyfile << " " << std::flush;
 
         int tmp = hours;
         hours = 1;
@@ -702,8 +651,8 @@ int Client::Run()
       }
       
       /* contact server */
-      Print(INFO) << "Contacting " << " " << beg->host << ":" << beg->port
-                  << " [" << beg->contact << "] \"" << beg->vo << "\"" << std::flush;
+      Print(INFO) << "Contacting " << beg->host << ":" << beg->port
+                  << " [" << beg->contact << "] \"" << beg->vo << "\"..." << std::flush;
 
       int status = v->ContactRaw(beg->host, beg->port, beg->contact, command, buffer, version, timeout);
 
@@ -751,7 +700,7 @@ int Client::Run()
         Print(INFO) << std::endl << "Trying next server for " << beg->nick << "." << std::endl;
       }
       else {
-        Print(ERROR) << std::endl << "None of the contacted servers for " << beg->vo << " were capable\nof returning a valid AC for the user." << std::endl;
+        Print(ERROR) << "\nNone of the contacted servers for " << beg->vo << " were capable of returning a valid AC for the user.\n";
         if (!noregen) 
           unlink(proxyfile.c_str());
         return 1;
@@ -798,19 +747,12 @@ int Client::Run()
   }
   
   /* create a proxy containing the data retrieved from VOMS servers */
-  
-  Print(INFO)  << "Creating proxy " << std::flush; 
-  Print(DEBUG) << "to " << proxyfile << " " << std::flush;
 
   if (CreateProxy(data, aclist, proxyver)) {
     goto err2;
   }
-  //  else  {
-    //    free(aclist);
-    //    aclist = NULL;
-  //  }
   
-  Print(INFO) << "\n" << std::flush;
+  Print(INFO) << '\n';
 
   /* unset environment */
   
@@ -819,12 +761,7 @@ int Client::Run()
   else {
     setenv("X509_USER_PROXY", oldenv, 1);
   }
-  
-  /* assure user certificate is not expired or going to, else advise but still create proxy */
-  
-  if (Test())
-    return 1;
-  
+ 
   return Verify();
 
  err:
@@ -839,8 +776,22 @@ int Client::Run()
 
 bool Client::CreateProxy(std::string data, AC ** aclist, int version) 
 {
-  struct VOMSProxyArguments *args = VOMS_MakeProxyArguments();
-  int ret = 0;
+  using ArgsPtr = std::unique_ptr<VOMSProxyArguments, void (*)(VOMSProxyArguments *)>;
+  ArgsPtr args{
+      VOMS_MakeProxyArguments(),
+      [](VOMSProxyArguments* args)
+      {
+        free(args->proxyfilename);
+        free(args->policyfile);
+        free(args->policylang);
+        free(args->voID);
+        free(args->filename);
+
+        VOMS_FreeProxyArguments(args);
+      }
+  };
+
+  int ret = -1;
 
   if (args) {
     args->proxyfilename = strdup(proxyfile.c_str());
@@ -868,13 +819,20 @@ bool Client::CreateProxy(std::string data, AC ** aclist, int version)
     args->limited       = limit_proxy;
 
     args->voID          = strdup(voID.c_str());
-    args->callback      = kpcallback;
     int warn = 0;
     void *additional = NULL;
 
-    struct VOMSProxy *proxy = VOMS_MakeProxy(args, &warn, &additional);
+    // we are creating a temporary proxy if there is no AC or
+    // if this is a plain Grid proxy (i.e. there was no -voms)
+    bool const temporary = aclist == nullptr && !vomses.empty();
+    Print(DEBUG) << "Creating" << (temporary ? " temporary " : " ")
+                 << "proxy in " << proxyfile << "... " << std::flush;
 
-    PrintProxyCreationError(warn, additional);
+    using ProxyPtr = std::unique_ptr<VOMSProxy, void(*)(VOMSProxy*)>;
+    ProxyPtr proxy{
+      VOMS_MakeProxy(args.get(), &warn, &additional),
+      [](VOMSProxy* p) { VOMS_FreeProxy(p); }
+    };
 
     if (proxy) {
       /* In case of success, OpenSSL routines have already automagically 
@@ -883,23 +841,29 @@ bool Client::CreateProxy(std::string data, AC ** aclist, int version)
         free(args->aclist);
         this->aclist = NULL;
       }
-      ret = VOMS_WriteProxy(proxyfile.c_str(), proxy);
-      if (ret == -1) 
-        Print(ERROR) << "\nERROR: Cannot write proxy to: " << proxyfile << std::endl << std::flush;
+      ret = VOMS_WriteProxy(proxyfile.c_str(), proxy.get());
+      if (ret == -1) {
+        Print(DEBUG) << "Failed\n";
+        PrintProxyCreationError(warn, additional);
+        if (!temporary)
+        {
+          Print(ERROR) << "\nERROR: Cannot write proxy to: " << proxyfile << '\n';
+        }
+      } else {
+        Print(DEBUG) << "Done\n";
+        PrintProxyCreationError(warn, additional);
+
+        if (!temporary)
+        {
+          Print(INFO) << "\nCreated proxy in " << proxyfile
+                      << ".\n\nYour proxy is valid until "
+                      << voms_internal::asn1_time_to_string(X509_get0_notAfter(proxy->cert)) << '\n';
+        }
+      }
+    } else {
+      Print(DEBUG) << "Failed\n";
+      Print(ERROR) << OpenSSLError(true) << '\n';
     }
-    
-
-    if (ret != -1)
-      Print(INFO) << " Done" << std::endl << std::flush;
-
-    VOMS_FreeProxy(proxy);
-    free(args->proxyfilename);
-    free(args->policyfile);
-    free(args->policylang);
-    free(args->voID);
-    free(args->filename);
-
-    VOMS_FreeProxyArguments(args);
   }
 
   return ret == -1;
@@ -911,9 +875,9 @@ void Client::PrintProxyCreationError(int error, void *additional)
 
   if (msg) {
     if (PROXY_ERROR_IS_WARNING(error))
-      Print(DEBUG) << msg;
+      Print(DEBUG) << msg << '\n';
     else
-      Print(ERROR) << msg;
+      Print(ERROR) << msg << '\n';
     free(msg);
   }
 }
@@ -1038,38 +1002,8 @@ int Client::Verify()
 
 bool Client::Test() 
 {
-  ASN1_UTCTIME * asn1_time = ASN1_UTCTIME_new();
-  X509_gmtime_adj(asn1_time, 0);
-  time_t time_now = ASN1_UTCTIME_mktime(asn1_time);
-  ASN1_UTCTIME_free(asn1_time);
-  time_t time_after = ASN1_UTCTIME_mktime(X509_get_notAfter(ucert));
-  time_t time_diff = time_after - time_now ;
-  int length  = hours*60*60 + minutes*60;
 
-  if (time_diff < 0) {
-    Print(WARN) << std::endl << "ERROR: Your certificate expired "
-                << asctime(localtime(&time_after)) << std::endl;
-    
-    return 2;
-  } 
-  
-  if (hours && time_diff < length) {
-    Print(WARN) << std::endl << "Warning: your certificate and proxy will expire "
-                << asctime(localtime(&time_after))
-                << "which is within the requested lifetime of the proxy"
-                << std::endl;
-    return 1;
-  }
-  
-  if (!quiet) {
-    time_t time_after_proxy;
-    time_after_proxy = time_now + length;
-    
-    Print(INFO) << "Your proxy is valid until "
-                << asctime(localtime(&time_after_proxy)) << std::flush;
-  }
-
-  return 0;
+  return false;
 }
 
 bool Client::AddToList(AC *ac) 
@@ -1118,37 +1052,72 @@ bool Client::checkstats(char *file, int mode)
   return true;
 }
 
+static bool check_validity_dates(X509 const* cert, int& time_left, std::string& error)
+{
+  assert(cert != nullptr);
+
+  time_left = 0;
+  error.clear();
+
+  ASN1_TIME const* not_before = X509_get0_notBefore(cert);
+  ASN1_TIME const* not_after = X509_get0_notAfter(cert);
+  int start_cmp = X509_cmp_current_time(not_before);
+  int end_cmp = X509_cmp_current_time(not_after);
+
+  if (start_cmp == 0 || end_cmp == 0) {
+    error = "Cannot check validity of certificate dates";
+    return false;
+  }
+
+  if (start_cmp > 0) {
+    error = "Certificate is not yet valid; validity starts on " + voms_internal::asn1_time_to_string(not_before);
+    return false;
+  }
+
+  int days{0}, secs{0};
+  ASN1_TIME_diff(&days, &secs, nullptr, not_after);
+  time_left = days * 24 * 60 * 60 + secs;
+
+  if (end_cmp < 0) {
+    error = "Certificate has expired on " + voms_internal::asn1_time_to_string(not_after);
+    return false;
+  }
+
+  return true;
+}
 
 bool Client::pcdInit() 
 {
-  int status = false;
-
   ERR_load_prxyerr_strings(0);
-  SSLeay_add_ssl_algorithms();
+  SSL_library_init();
   ERR_load_crypto_strings();
   OpenSSL_add_all_ciphers();
   PKCS12_PBE_add();
   
-  if (!determine_filenames(&cacertfile, &certdir, &outfile, &certfile, &keyfile, noregen ? 1 : 0))
-    goto err;
+  if (!determine_filenames(&cacertfile, &certdir, &outfile, &certfile, &keyfile, noregen ? 1 : 0)) {
+    Error();
+    return false;
+  }
 
   if (!certfile){
-    Print(ERROR) << "ERROR: Coudln't find valid credentials to generate a proxy." << std::endl;
-    goto err;
+    Print(ERROR) << "ERROR: Couldn't find valid credentials to generate a proxy." << std::endl;
+    Error();
+    return false;
   }
 
 
-  if (certfile == keyfile) 
+  if (certfile == keyfile) {
     keyfile = strdup(certfile);
+  }
 
   if (!noregen) {
-    if (certfile)
+    if (certfile) {
       setenv("X509_USER_CERT", certfile, 1);
-
-    if (keyfile)
+    }
+    if (keyfile) {
       setenv("X509_USER_KEY", keyfile, 1);
-  }
-  else {
+    }
+  } else {
     if (outfile) {
       setenv("X509_USER_CERT", outfile, 1);
       setenv("X509_USER_KEY", outfile, 1);
@@ -1159,33 +1128,42 @@ bool Client::pcdInit()
 
   if (!checkstats(certfile, S_IXUSR | S_IWGRP | S_IXGRP | S_IWOTH | S_IXOTH) ||
       !checkstats(keyfile, S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IRGRP |
-                  S_IWOTH | S_IXOTH))
-    exit(1);
+                  S_IWOTH | S_IXOTH)) {
+    Error();
+    return false;
+  }
   
   Print(DEBUG) << "Files being used:" << std::endl 
                << " CA certificate file: " << (cacertfile ? cacertfile : "none") << std::endl
-               << " Trusted certificates directory : " << (certdir ? certdir : "none") << std::endl
-               << " Proxy certificate file : " << (outfile ? outfile : "none") << std::endl
+               << " Trusted certificates directory: " << (certdir ? certdir : "none") << std::endl
+               << " Proxy certificate file: " << (outfile ? outfile : "none") << std::endl
                << " User certificate file: " << (certfile ? certfile : "none") << std::endl
-               << " User key file: " << (keyfile ? keyfile : "none") << std::endl
-               << "Output to " << outfile << std::endl;
+               << " User key file: " << (keyfile ? keyfile : "none") << std::endl;
 
-  if (!load_credentials(certfile, keyfile, &ucert, &cert_chain, &private_key, pw_cb))
-    goto err;
+  if (!load_credentials(certfile, keyfile, &ucert, &cert_chain, &private_key, pw_cb)) {
+    Error();
+    return false;
+  }
 
   if (!quiet) {
-    char * s = NULL;
-    s = X509_NAME_oneline(X509_get_subject_name(ucert),NULL,0);
+    char* s = X509_NAME_oneline(X509_get_subject_name(ucert),NULL,0);
     Print(INFO) << "Your identity: " << s << std::endl;
     OPENSSL_free(s);
   }
 
-  status = true;
-  
- err:
-  Error();
-  return status;
-  
+  int time_left;
+  std::string error;
+  if (!check_validity_dates(ucert, time_left, error)) {
+    Print(ERROR) << "\nERROR: " << error << "\n\n";
+    Error();
+    return false;
+  }
+
+  if (time_left < hours * 60 * 60 + minutes * 60) {
+    Print(WARN) << "\nWARNING: proxy lifetime limited to issuing credential lifetime\n";
+  }
+
+  return true;
 }
 
 void Client::Error() 
@@ -1195,21 +1173,9 @@ void Client::Error()
 
 static AC *getAC(const std::string& data)
 {
-  VOMS_MAYBECONST unsigned char *p;
-  char *pp;
-  AC *ac = NULL;
-  int len = data.size();
+  auto str = reinterpret_cast<unsigned char const*>(data.c_str());
 
-  pp = (char *)malloc(len);
-
-  if (pp) {
-    pp = (char *)memcpy(pp, data.data(), len);
-    p = (VOMS_MAYBECONST unsigned char*)pp;
-    ac = d2i_AC(NULL, (VOMS_MAYBECONST unsigned char **)&p, len);
-    free(pp);
-  }
-
-  return ac;
+  return d2i_AC(NULL, &str, data.size());
 }
 
 bool Client::LoadVomses()

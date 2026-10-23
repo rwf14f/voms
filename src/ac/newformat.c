@@ -38,14 +38,6 @@
 #include "acerrors.h"
 #include "attributes.h"
 
-#ifndef VOMS_MAYBECONST
-#if defined(D2I_OF)
-#define VOMS_MAYBECONST const
-#else
-#define VOMS_MAYBECONST
-#endif
-#endif
-
 ASN1_SEQUENCE(AC_DIGEST) = {
   ASN1_SIMPLE(AC_DIGEST, type, ASN1_ENUMERATED),
   ASN1_OPT(AC_DIGEST, oid, ASN1_OBJECT),
@@ -197,5 +189,5 @@ EVP_PKEY *EVP_PKEY_dup(EVP_PKEY *pkey)
 
 int AC_verify(X509_ALGOR *algor1, ASN1_BIT_STRING *signature,char *data, EVP_PKEY *pkey)
 {
-  return ASN1_verify((int (*)())i2d_AC_INFO, algor1, signature, data, pkey);
+  return ASN1_verify((i2d_of_void *)i2d_AC_INFO, algor1, signature, data, pkey);
 }

@@ -5,17 +5,17 @@ on:
   push:
 
 jobs:
-  
-  centos7:
+
+  el8:
     runs-on: ubuntu-latest
-    container: centos:centos7
+    container: almalinux:8
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Install packages
         run: |
-          yum install -y epel-release
-          yum install -y make file automake libtool gcc-c++ openssl-devel gsoap-devel gsoap expat-devel bison
+          dnf install -y epel-release
+          dnf install -y make file automake libtool gcc-c++ openssl-devel gsoap-devel gsoap expat-devel bison diffutils
 
       - name: Build
         run: |
@@ -23,16 +23,49 @@ jobs:
           ./configure
           make
 
-  centos9:
+  el9:
     runs-on: ubuntu-latest
-    container: quay.io/centos/centos:stream9
+    container: almalinux:9
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Install packages
         run: |
-          yum install -y epel-release
-          yum install -y make file automake libtool gcc-c++ openssl-devel gsoap-devel gsoap expat-devel bison
+          dnf install -y epel-release
+          dnf install -y make file automake libtool gcc-c++ openssl-devel gsoap-devel gsoap expat-devel bison diffutils
+
+      - name: Build
+        run: |
+          ./autogen.sh
+          ./configure
+          make
+
+  el10:
+    runs-on: ubuntu-latest
+    container: almalinux:10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages
+        run: |
+          dnf install -y epel-release
+          dnf install -y make file automake libtool gcc-c++ openssl-devel gsoap-devel gsoap expat-devel bison diffutils
+
+      - name: Build
+        run: |
+          ./autogen.sh
+          ./configure
+          make
+
+  fedora45:
+    runs-on: ubuntu-latest
+    container: fedora:45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages
+        run: |
+          dnf install -y make file automake libtool gcc-c++ openssl-devel gsoap-devel gsoap expat-devel bison
 
       - name: Build
         run: |
@@ -41,17 +74,68 @@ jobs:
           make
 
   ubuntu2004:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Install packages
         run: |
-          sudo apt update
-          sudo apt install make automake libtool pkg-config g++ libssl-dev libgsoap-dev gsoap libexpat-dev
+          apt update
+          DEBIAN_FRONTEND=noninteractive apt install -y make automake libtool pkg-config g++ libssl-dev libgsoap-dev gsoap libexpat-dev
 
       - name: Build
         run: |
           ./autogen.sh
           ./configure
+          make
+
+  ubuntu2404:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages
+        run: |
+          sudo apt update
+          sudo apt install -y make automake libtool pkg-config g++ libssl-dev libgsoap-dev gsoap libexpat-dev
+
+      - name: Build
+        run: |
+          ./autogen.sh
+          ./configure
+          make
+
+  ubuntu2604:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages
+        run: |
+          sudo apt update
+          sudo apt install -y make automake libtool pkg-config g++ libssl-dev libgsoap-dev gsoap libexpat-dev
+
+      - name: Build
+        run: |
+          ./autogen.sh
+          ./configure
+          make
+
+  macos26:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages
+        run: |
+          brew install -y automake libtool gsoap openssl zlib
+
+      - name: Build
+        run: |
+          DYLD_LIBRARY_PATH=$(brew --prefix gsoap)/lib:$(brew --prefix openssl)/lib:$(brew --prefix zlib)/lib:$DYLD_LIBRARY_PATH
+          CPPFLAGS="-I$(brew --prefix openssl)/include"
+          LDFLAGS="-L$(brew --prefix openssl)/lib -lssl -lcrypto -lz"
+          ./autogen.sh
+          ./configure CPPFLAGS="$CPPFLAGS" LDFLAGS="$LDFLAGS" --with-gsoap-wsdl2h=$(brew --prefix gsoap)/bin/wsdl2h
           make

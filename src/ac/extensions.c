@@ -42,14 +42,6 @@
 #include <string.h>
 #include <assert.h>
 
-#ifndef VOMS_MAYBECONST
-#if defined(D2I_OF)
-#define VOMS_MAYBECONST const
-#else
-#define VOMS_MAYBECONST
-#endif
-#endif
-
 static char *norep()
 {
   static char *buffer = 0;
@@ -107,7 +99,6 @@ void *targets_s2i(UNUSED(struct v3_ext_method *method), UNUSED(struct v3_ext_ctx
   char *back = list;
   AC_TARGETS *a = AC_TARGETS_new();
 
-  int attlist;
   do {
     pos = strchr(list, ',');
 
@@ -129,7 +120,6 @@ void *targets_s2i(UNUSED(struct v3_ext_method *method), UNUSED(struct v3_ext_ctx
       g->d.ia5 = tmpr;
       targ->name = g;
       sk_AC_TARGET_push(a->targets, targ);
-      attlist++;
     }
     if (pos)
       list = ++pos;
@@ -210,7 +200,7 @@ void *authkey_s2i(UNUSED(struct v3_ext_method *method), UNUSED(struct v3_ext_ctx
   AUTHORITY_KEYID *keyid = AUTHORITY_KEYID_new();
 
   if (str && keyid) {
-    X509_PUBKEY* pk = X509_get_X509_PUBKEY(cert);
+    const X509_PUBKEY* pk = X509_get_X509_PUBKEY(cert);
     assert(pk != NULL && "X509_get_X509_PUBKEY failed");
     unsigned char const* data;
     int len;
@@ -254,7 +244,7 @@ int initEx(void)
 
   memset(avail, 0, sizeof(*avail));
   avail->ext_nid  = OBJ_txt2nid("noRevAvail");
-  avail->ext_flags = 0;
+  avail->ext_flags = X509V3_EXT_DYNAMIC;
   avail->ext_new  = (X509V3_EXT_NEW) ASN1_NULL_new;
   avail->ext_free = (X509V3_EXT_FREE)ASN1_NULL_free;
   avail->d2i      = (X509V3_EXT_D2I) d2i_ASN1_NULL;
@@ -270,7 +260,7 @@ int initEx(void)
 
   memset(targets, 0, sizeof(*targets));
   targets->ext_nid  = OBJ_txt2nid("targetInformation");
-  targets->ext_flags = 0;
+  targets->ext_flags = X509V3_EXT_DYNAMIC;
   targets->ext_new  = (X509V3_EXT_NEW) AC_TARGETS_new;
   targets->ext_free = (X509V3_EXT_FREE)AC_TARGETS_free;
   targets->d2i      = (X509V3_EXT_D2I) d2i_AC_TARGETS;
@@ -286,7 +276,7 @@ int initEx(void)
 
   memset(acseq, 0, sizeof(*acseq));
   acseq->ext_nid  = OBJ_txt2nid("acseq");
-  acseq->ext_flags = 0;
+  acseq->ext_flags = X509V3_EXT_DYNAMIC;
   acseq->ext_new  = (X509V3_EXT_NEW) AC_SEQ_new;
   acseq->ext_free = (X509V3_EXT_FREE)AC_SEQ_free;
   acseq->d2i      = (X509V3_EXT_D2I) d2i_AC_SEQ;
@@ -302,7 +292,7 @@ int initEx(void)
 
   memset(certseq, 0, sizeof(*certseq));
   certseq->ext_nid  = OBJ_txt2nid("certseq");
-  certseq->ext_flags = 0;
+  certseq->ext_flags = X509V3_EXT_DYNAMIC;
   certseq->ext_new  = (X509V3_EXT_NEW) AC_CERTS_new;
   certseq->ext_free = (X509V3_EXT_FREE)AC_CERTS_free;
   certseq->d2i      = (X509V3_EXT_D2I) d2i_AC_CERTS;
@@ -318,7 +308,7 @@ int initEx(void)
 
   memset(attribs, 0, sizeof(*attribs));
   attribs->ext_nid  = OBJ_txt2nid("attributes");
-  attribs->ext_flags = 0;
+  attribs->ext_flags = X509V3_EXT_DYNAMIC;
   attribs->ext_new  = (X509V3_EXT_NEW) AC_FULL_ATTRIBUTES_new;
   attribs->ext_free = (X509V3_EXT_FREE)AC_FULL_ATTRIBUTES_free;
   attribs->d2i      = (X509V3_EXT_D2I) d2i_AC_FULL_ATTRIBUTES;

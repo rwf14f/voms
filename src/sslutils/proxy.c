@@ -107,14 +107,12 @@ int VOMS_WriteProxy(const char *filename, struct VOMSProxy *proxy)
     retry --;
   }
 
-#ifndef WIN32
   if (fd != -1) {
     if (fchmod(fd, S_IRUSR|S_IWUSR) < 0) {
       close(fd);
       return -1;
     }
   }
-#endif
 
   if (fd != -1) {
     if ((bp = BIO_new_fd(fd, BIO_NOCLOSE)) != NULL) {
@@ -400,22 +398,6 @@ struct VOMSProxy *VOMS_MakeProxy(struct VOMSProxyArguments *args, int *warning, 
     }
   }
 
-  /* class_add extension */
-
-#ifdef CLASS_ADD
-  
-  if (class_add_buf && class_add_buf_len > 0) {
-    if ((ex2 = proxy_extension_class_add_create((void *)args->class_add_buf, args->class_add_buf_len)) == NULL) {
-      PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_CLASS_ADD_EXT);
-      goto err;
-    }
-    
-    if (!SET_EXT(ex2))
-      goto err;
-  }
-
-#endif
-
   /* PCI extension */
   
   if (args->proxyversion>=3) {
@@ -543,8 +525,8 @@ struct VOMSProxy *VOMS_MakeProxy(struct VOMSProxyArguments *args, int *warning, 
       oct = ASN1_OCTET_STRING_new();
       assert(oct != NULL && "ASN1_OCTET_STRING_new failed");
 
-      oct->data = der;
-      oct->length = len;
+      ASN1_OCTET_STRING_set(oct, der, len);
+      OPENSSL_free(der);
       ex7 = X509_EXTENSION_create_by_NID(NULL, v3nid, 1 /*critical*/, oct);
 
       ASN1_OCTET_STRING_free(oct);
@@ -682,10 +664,9 @@ X509_EXTENSION *CreateProxyExtension(char * name, char *data, int datalen, int c
     PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_CLASS_ADD_EXT);
     goto err;
   }
-  
-  ex_oct->data   = (unsigned char*)data;
-  ex_oct->length = datalen;
-  
+
+  ASN1_OCTET_STRING_set(ex_oct, (const unsigned char*) data, datalen);
+
   if (!(ex = X509_EXTENSION_create_by_OBJ(NULL, ex_obj, crit, ex_oct))) {
     PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_CLASS_ADD_EXT);
   }
@@ -693,9 +674,6 @@ X509_EXTENSION *CreateProxyExtension(char * name, char *data, int datalen, int c
  err:
   
   if (ex_oct) {
-    /* avoid spurious free of the contents. */
-    ex_oct->length = 0;
-    ex_oct->data = NULL;
     ASN1_OCTET_STRING_free(ex_oct);
   }
 
@@ -806,10 +784,10 @@ static int get_KeyUsageFlags(X509 *cert)
   ASN1_BIT_STRING *usage = X509_get_ext_d2i(cert, NID_key_usage, NULL, NULL);
   
   if (usage) {
-    if (usage->length > 0)
-      keyusage = usage->data[0];
-    if (usage->length > 1)
-      keyusage |= usage->data[1] << 8;
+    if (ASN1_STRING_length(usage) > 0)
+      keyusage = ASN1_STRING_get0_data(usage)[0];
+    if (ASN1_STRING_length(usage) > 1)
+      keyusage |= ASN1_STRING_get0_data(usage)[1] << 8;
 
     ASN1_BIT_STRING_free(usage);
   }

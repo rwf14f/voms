@@ -25,9 +25,9 @@
 
 #include "config.h"
 #include "api_util.h"
+#include "asn1_utils.h"
 
 extern "C" {
-#include "replace.h"
 
 #include <sys/types.h>
 #include <netdb.h>
@@ -67,14 +67,6 @@ extern "C" {
 
 #include "internal.h"
 #include "normalize.h"
-
-#ifndef VOMS_MAYBECONST
-#if defined(D2I_OF)
-#define VOMS_MAYBECONST const
-#else
-#define VOMS_MAYBECONST
-#endif
-#endif
 
 extern proxy_verify_desc *setup_initializers(char *cadir);
 extern void destroy_initializers(void *data);
@@ -132,24 +124,20 @@ vomsdata::evaluate(AC_SEQ *acs, const std::string& subject,
   return ok;
 }
 
-
-static X509_EXTENSION *get_ext(X509 *cert, const char *name)
+static auto get_ext(X509 *cert, const char *name)
 {
   int nid   = OBJ_txt2nid(name);
   int index = X509_get_ext_by_NID(cert, nid, -1);
 
-  if (index >= 0)
-    return X509_get_ext(cert, index);
-  else
-    return NULL;
+  // it returns nullptr in case of invalid arguments
+  return X509_get_ext(cert, index);
 }
 
 static bool findexts(X509 *cert , AC_SEQ **listnew, std::string &extra_data, std::string &workvo)
 {
-  X509_EXTENSION *ext;
   bool found = false;
 
-  ext = get_ext(cert, "acseq");
+  auto ext = get_ext(cert, "acseq");
   if (ext) {
     *listnew = (AC_SEQ *)X509V3_EXT_d2i(ext);
     found = true;
@@ -157,17 +145,17 @@ static bool findexts(X509 *cert , AC_SEQ **listnew, std::string &extra_data, std
 
   ext = get_ext(cert, "incfile");
   if (ext) {
-    ASN1_OCTET_STRING* value = X509_EXTENSION_get_data(ext);
+    const ASN1_OCTET_STRING* value = X509_EXTENSION_get_data(ext);
     assert(value && "X509_EXTENSION_get_data failed");
-    extra_data = std::string(reinterpret_cast<char*>(value->data), value->length);
+    extra_data = voms_internal::to_string(value);
     found = true;
   }
 
   ext = get_ext(cert, "vo");
   if (ext) {
-    ASN1_OCTET_STRING* value = X509_EXTENSION_get_data(ext);
+    const ASN1_OCTET_STRING* value = X509_EXTENSION_get_data(ext);
     assert(value && "X509_EXTENSION_get_data failed");
-    workvo = std::string(reinterpret_cast<char*>(value->data), value->length);
+    workvo = voms_internal::to_string(value);
   }
 
   return found;
@@ -289,10 +277,10 @@ vomsdata::verifydata(std::string &message, UNUSED(std::string subject),
 
   error = VERR_FORMAT;
 
-  VOMS_MAYBECONST unsigned char *str  = (VOMS_MAYBECONST unsigned char *)(message.data());
-  VOMS_MAYBECONST unsigned char *orig = str;
+  unsigned char* const orig = reinterpret_cast<unsigned char*>(message.data());
+  unsigned char const* str  = orig;
 
-  AC   *tmp    = d2i_AC(NULL, &str, message.size());
+  AC* tmp = d2i_AC(NULL, &str, message.size());
 
   if (tmp) {
     size_t off = str - orig;
@@ -423,7 +411,7 @@ vomsdata::check(void *data)
     return NULL;
   }
   
-  std::string voname((const char *)name->d.ia5->data, 0, name->d.ia5->length);
+  std::string voname = voms_internal::to_string(name->d.ia5);
   std::string::size_type cpos = voname.find("://");
   std::string hostname;
 
@@ -760,7 +748,7 @@ vomsdata::check_cert(STACK_OF(X509) *stack)
         error = VERR_VERIFY;
         if (X509_STORE_CTX_init(csc, ctx, sk_X509_value(stack, 0), NULL)==0) {
           error = VERR_MEM;
-        } else	{
+        } else {
 
           X509_STORE_CTX_set_ex_data(csc, PVD_STORE_EX_DATA_IDX, pvd);
           /* X509_STORE_CTX_get0_param() only returns NULL if
@@ -813,7 +801,7 @@ vomsdata::check_cert(STACK_OF(X509) *stack)
 
 bool
 vomsdata::contact(const std::string &hostname, int port, UNUSED(const std::string &contact),
-	const std::string &command, std::string &buf, std::string &u, std::string &uc,
+                  const std::string &command, std::string &buf, std::string &u, std::string &uc,
                   int timeout)
 {
   GSISocketClient sock(hostname, port);

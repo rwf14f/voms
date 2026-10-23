@@ -1,15 +1,15 @@
 ACLOCAL_AMFLAGS=-I m4
-SUBDIRS = src doc m4 testsuite
+SUBDIRS = src doc m4
 
 EXTRA_DIST = autogen.sh LICENSE
 
 APIDOC_DIR = $(top_builddir)/doc/apidoc
 USERDOC_DIR = $(top_builddir)/doc/userdoc
 
-APIDOC_FILES = $(top_srcdir)/AUTHORS $(top_srcdir)/INSTALL $(top_srcdir)/LICENSE $(top_srcdir)/README
+APIDOC_FILES = $(top_srcdir)/AUTHORS $(top_srcdir)/LICENSE $(top_srcdir)/README
 USERDOC_FILES = $(APIDOC_FILES)
 
-spec=spec/voms-all.spec
+spec=$(top_srcdir)/voms.spec
 deb_comp="libvomsapi1 voms-dev voms-clients voms-server"
 
 rpmbuild_dir=@WORKDIR@/rpmbuild
@@ -24,6 +24,10 @@ apidoc-local: $(APIDOC_FILES)
 	for file in $(APIDOC_FILES); do \
 	  $(INSTALL_DATA) $${file} $(APIDOC_DIR); \
 	done
+
+uninstall-hook:
+	rm -f $(APIDOC_DIR)/AUTHORS $(APIDOC_DIR)/LICENSE $(APIDOC_DIR)/README
+	rmdir $(APIDOC_DIR) 2>/dev/null || true
 
 apidoc-recursive:
 	$(MAKE) apidoc -C api
@@ -55,9 +59,7 @@ distclean-local:
 	rm -f configure aclocal.m4 $(distdir).tar.gz 
 	rm -f m4/libtool.m4 m4/ltoptions.m4 m4/ltsugar.m4 m4/ltversion.m4 m4/lt~obsolete.m4
 	rm -rf autom4te.cache aux src/autogen $(rpmbuild_dir) $(debbuild_dir)
-	rm -rf testsuite/dbg.log
 	find . -name Makefile.in -exec rm {} \;
-
 
 rpm: dist
 	mkdir -p $(rpmbuild_dir)/BUILD $(rpmbuild_dir)/RPMS $(rpmbuild_dir)/SOURCES $(rpmbuild_dir)/SPECS $(rpmbuild_dir)/SRPMS

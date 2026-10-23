@@ -33,7 +33,6 @@
 #include "config.h"
 
 extern "C" {
-#include "replace.h"
 
 #include <errno.h>
 #include <sys/types.h>
@@ -234,11 +233,7 @@ void destroy_SSL_proxy_handler(SSL *ssl)
 bool
 GSISocketClient::Open()
 {
-#if OPENSSL_VERSION_NUMBER >= 0x10000000L
   const SSL_METHOD *meth = NULL;
-#else
-  SSL_METHOD *meth = NULL;
-#endif
   int fd = -1;
   char portstring[36];
   std::string error;

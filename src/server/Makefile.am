@@ -30,23 +30,23 @@ EXTRA_DIST= VOMSAC.wsdl
 CLEANFILES= soap* VOMSAC.h vomsSOAP*
 
 voms_LDADD = \
-	$(top_builddir)/src/socklib/libsock_nog.la \
-	$(top_builddir)/src/common/libutilities_nog.la \
-	$(top_builddir)/src/ac/libattributes_nog.la \
-	$(top_builddir)/src/common/libutilc_nog.la \
-	$(top_builddir)/src/replib/librep.la \
+	$(top_builddir)/src/socklib/libsock.la \
+	$(top_builddir)/src/common/libutilities.la \
+	$(top_builddir)/src/ac/libattributes.la \
+	$(top_builddir)/src/common/libutilc.la \
 	$(top_builddir)/src/log/liblog.la \
 	$(top_builddir)/src/api/ccapi/libvomsapi.la \
 	$(GSOAP_SSL_PP_LIBS) \
 	$(OPENSSL_LIBS) \
 	$(EXPAT_LIBS) \
-	-ldl 
+	-ldl
 
-voms_CFLAGS = $(GSOAP_SSL_PP_CFLAGS) -DHAVE_OPENSSL_SSL_H
-
-AM_CPPFLAGS = \
+voms_CPPFLAGS = \
+	$(GSOAP_PP_CFLAGS) \
+	-DHAVE_OPENSSL_SSL_H \
 	-I$(top_srcdir)/src/include \
 	-I$(top_srcdir)/src/api/ccapi \
-	$(NO_GLOBUS_FLAGS)
+	$(OPENSSL_CFLAGS)
+
 
 endif

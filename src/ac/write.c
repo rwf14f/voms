@@ -75,13 +75,18 @@ AC_TARGET* build_ac_target(char* t){
         ASN1_IA5STRING_free(target_str);
         return NULL;
     }
+    GENERAL_NAME *name = GENERAL_NAME_new();
+    if (! name) {
+        AC_TARGET_free(target);
+        ASN1_IA5STRING_free(target_str);
+        return NULL;
+    }
 
     ASN1_STRING_set(target_str, t, strlen(t));
 
-    GENERAL_NAME *name = target->name;
-
     name->type = GEN_URI;
     name->d.ia5 = target_str;
+    target->name = name;
 
     return target;
 }
@@ -195,7 +200,8 @@ int writeac(X509 *issuerc, STACK_OF(X509) *issuerstack, X509 *holder, EVP_PKEY *
             STACK_OF(X509_EXTENSION) *extensions)
 {
   AC *a;
-  X509_NAME *name1, *name2, *subjdup, *issdup;
+  const X509_NAME *name1, *name2;
+  X509_NAME *subjdup, *issdup;
   GENERAL_NAME *dirn, *dirn2;
   ASN1_INTEGER  *serial, *holdserial, *version;
   ASN1_BIT_STRING *uid;
@@ -433,10 +439,7 @@ int writeac(X509 *issuerc, STACK_OF(X509) *issuerstack, X509 *holder, EVP_PKEY *
     alg1 = X509_ALGOR_dup((X509_ALGOR*)sig_alg); // const_cast
   }
   {
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
-    const
-#endif
-    X509_ALGOR *sig_alg;
+    const X509_ALGOR *sig_alg;
     X509_get0_signature(NULL, &sig_alg, issuerc);
     alg2 = X509_ALGOR_dup((X509_ALGOR*)sig_alg); // possibly const_cast
   }
@@ -473,11 +476,10 @@ int writeac(X509 *issuerc, STACK_OF(X509) *issuerstack, X509 *holder, EVP_PKEY *
   EVP_MD const* md = EVP_get_digestbyobj(a->sig_alg->algorithm);
 
   if (md == NULL){
-    /* fall back to SHA1 */
-    md = EVP_sha1();
+    md = EVP_sha256();
   }
 
-  ASN1_sign((int (*)())i2d_AC_INFO, a->acinfo->alg, a->sig_alg, a->signature,
+  ASN1_sign((i2d_of_void *)i2d_AC_INFO, a->acinfo->alg, a->sig_alg, a->signature,
 	    (char *)a->acinfo, pkey, md);
 
   *ac = a;

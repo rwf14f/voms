@@ -31,7 +31,6 @@
                              Include header files
 **********************************************************************/
 #include "config.h"
-#include "replace.h"
 
 #include <string>
 
@@ -50,12 +49,8 @@ extern "C" {
 #include <fcntl.h>
 #include <errno.h>
 
-#ifdef USE_PKCS11
-#include "scutils.h"
-#endif
 #include "sslutils.h"
 }
-
 #include "data.h"
 #include "options.h"
 
@@ -135,12 +130,8 @@ delete_proxy(void)
 {
   char *of;
 
-#ifdef WIN32
-  CRYPTO_malloc_init();
-#endif
-
   ERR_load_prxyerr_strings(0);
-  SSLeay_add_ssl_algorithms();
+  SSL_library_init();
 
   /*
    * These 5 const_cast are allowed because proxy_get_filenames will

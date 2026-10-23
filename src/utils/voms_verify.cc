@@ -26,7 +26,7 @@ int load_user_proxy(STACK_OF(X509) *cert_chain, const char *file) {
 
   for (;;)
   {
-    x = PEM_read_bio_X509(in,NULL, OPENSSL_PEM_CB(NULL,NULL));
+    x = PEM_read_bio_X509(in, NULL, NULL, NULL);
     if (x == NULL)
     {
       if ((ERR_GET_REASON(ERR_peek_error()) ==
@@ -215,7 +215,7 @@ int main(int argc, char* argv[]){
     exit(-1);
   }
 
-  printf("Certificate chain verified succesfully\n");
+  printf("Certificate chain verified successfully\n");
 
   return 0;
 }

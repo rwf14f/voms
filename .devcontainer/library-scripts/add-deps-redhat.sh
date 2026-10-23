@@ -22,14 +22,11 @@ package_list="\
   openssl-devel \
   gsoap-devel \
   bison \
+  flex \
   gcc-c++"
 
 if ! type git > /dev/null 2>&1; then
-  if [ "${ID}" = "centos" ] && [ "${VERSION_ID}" = "7" ]; then
-    package_list="${package_list} git236"
-  else
-    package_list="${package_list} git"
-  fi
+  package_list="${package_list} git"
 fi
 
 

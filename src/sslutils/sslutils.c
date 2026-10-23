@@ -32,7 +32,6 @@ Description:
 #define _GNU_SOURCE
 
 #include "config.h"
-#include "replace.h"
 #include "proxycertinfo.h"
 #include "sslutils.h"
 #include "parsertypes.h"
@@ -46,28 +45,15 @@ Description:
 #endif
 
 #ifndef DEFAULT_SECURE_TMP_DIR
-#ifndef WIN32
 #define DEFAULT_SECURE_TMP_DIR "/tmp"
-#else
-#define DEFAULT_SECURE_TMP_DIR "c:\\tmp"
-#endif
 #endif
 
-#ifndef WIN32
 #define FILE_SEPERATOR "/"
-#else
-#define FILE_SEPERATOR "\\"
-#endif
 
-#ifdef WIN32
-#include "winglue.h"
-#include <io.h>
-#else
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #include <dirent.h>
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,17 +73,7 @@ Description:
 
 #include "openssl/rsa.h"
 #include "openssl/rand.h"
-#if SSLEAY_VERSION_NUMBER >= 0x0090581fL
 #include "openssl/x509v3.h"
-#endif
-
-#ifndef X509_V_ERR_INVALID_PURPOSE
-#define X509_V_ERR_INVALID_PURPOSE X509_V_ERR_CERT_CHAIN_TOO_LONG
-#endif
-
-#ifdef USE_PKCS11
-#include "scutils.h"
-#endif
 
 #include <assert.h>
 
@@ -255,13 +231,13 @@ Returns :
 ********************************************************************/
 static int
 X509_NAME_cmp_no_set(
-    X509_NAME *                         a,
-    X509_NAME *                         b)
+    const X509_NAME *                         a,
+    const X509_NAME *                         b)
 {
     int                                 i;
     int                                 j;
-    X509_NAME_ENTRY *                   na;
-    X509_NAME_ENTRY *                   nb;
+    const X509_NAME_ENTRY *             na;
+    const X509_NAME_ENTRY *             nb;
 
     if (X509_NAME_entry_count(a) != X509_NAME_entry_count(b))
     {
@@ -272,8 +248,8 @@ X509_NAME_cmp_no_set(
     {
         na = X509_NAME_get_entry(a,i);
         nb = X509_NAME_get_entry(b,i);
-        ASN1_STRING* sa = X509_NAME_ENTRY_get_data(na);
-        ASN1_STRING* sb = X509_NAME_ENTRY_get_data(nb);
+        const ASN1_STRING* sa = X509_NAME_ENTRY_get_data(na);
+        const ASN1_STRING* sb = X509_NAME_ENTRY_get_data(nb);
         j = ASN1_STRING_length(sa) - ASN1_STRING_length(sb);
 
         if (j)
@@ -307,82 +283,6 @@ X509_NAME_cmp_no_set(
     return(0);
 }
 
-#ifdef WIN32
-/*********************************************************************
-Function: getuid, getpid
-
-Descriptions:
-        For Windows95, WIN32, we don't have these, so we will default
-    to using uid 0 and pid 0 Need to look at this better for NT.
-******************************************************************/
-static unsigned long
-getuid()
-{
-    return 0;
-}
-
-static int
-getpid()
-{
-    return 0;
-}
-
-#endif /* WIN32 */
-
-
-#if SSLEAY_VERSION_NUMBER < 0x0900
-
-/**********************************************************************
-Function: ERR_add_error_data()
-
-Description:
-    Dummy routine only defined if running with SSLeay-0.8.x
-    this feature was introduced with SSLeay-0.9.0
-
-Parameters:
-
-Returns:
-**********************************************************************/
-void PRIVATE
-ERR_add_error_data( VAR_PLIST( int, num ))
-    VAR_ALIST
-{
-    VAR_BDEFN(args, int, num);
-}
-
-/**********************************************************************
-Function: ERR_get_error_line_data()
-
-Description:
-    Dummy routine only defined if running with SSLeay-0.8.x
-    this feature was introduced with SSLeay-0.9.0. We will
-    simulate it for 0.8.1
-
-Parameters:
-
-Returns:
-**********************************************************************/
-unsigned long PRIVATE
-ERR_get_error_line_data(
-    char **                             file,
-    int *                               line,
-    char **                             data,
-    int *                               flags)
-{
-    if (data)
-    {
-        *data = "";
-    }
-
-    if (flags)
-    {
-        *flags = 0;
-    }
-
-    return (ERR_get_error_line(file, line));
-}
-
-#endif
 
 /**********************************************************************
 Function: ERR_set_continue_needed()
@@ -404,10 +304,12 @@ Returns:
 void PRIVATE
 ERR_set_continue_needed(void)
 {
+#if OPENSSL_VERSION_NUMBER < 0x40000000L
     ERR_STATE *es;
     es = ERR_get_state();
     es->err_data_flags[es->top] =
         es->err_data_flags[es->top] | ERR_DISPLAY_CONTINUE_NEEDED;
+#endif
 }
 
 
@@ -450,12 +352,8 @@ ERR_load_prxyerr_strings(
     static int                          init = 1;
     struct stat                         stx;
     clock_t cputime;
-#if SSLEAY_VERSION_NUMBER  >= 0x00904100L
     const char *                        randfile;
-#else
-    char *                              randfile;
-#endif
-#if SSLEAY_VERSION_NUMBER >=  0x0090581fL && !defined(OPENSSL_NO_EGD)
+#if !defined(OPENSSL_NO_EGD)
     char *                              egd_path;
 #endif
     char                                buffer[200];
@@ -519,12 +417,12 @@ ERR_load_prxyerr_strings(
 
         randfile = RAND_file_name(buffer,200);
 
-        if (randfile)
+        if (randfile && access(randfile, R_OK) == 0)
         {
             RAND_load_file(randfile,1024L*1024L);
         }
 
-#if SSLEAY_VERSION_NUMBER >=  0x0090581fL && !defined(OPENSSL_NO_EGD)
+#if !defined(OPENSSL_NO_EGD)
         /*
          * Try to use the Entropy Garthering Deamon
          * See the OpenSSL crypto/rand/rand_egd.c
@@ -550,10 +448,6 @@ ERR_load_prxyerr_strings(
 #endif
 
         i++;
-#ifdef USE_PKCS11
-        i = ERR_load_scerr_strings(i);
-#endif
-
     }
     return i;
 }
@@ -584,7 +478,6 @@ static int checkstat(const char* filename)
      */
     RAND_add((void*)&stx,sizeof(stx),2);
 
-#if !defined(WIN32) && !defined(TARGET_ARCH_CYGWIN)
     if (stx.st_uid != getuid())
     {
       return 2;
@@ -594,8 +487,6 @@ static int checkstat(const char* filename)
     {
         return 3;
     }
-
-#endif /* !WIN32 && !TARGET_ARCH_CYGWIN */
 
     if (stx.st_size == 0)
     {
@@ -645,7 +536,7 @@ proxy_load_user_proxy(
 
     for (;;)
     {
-        x = PEM_read_bio_X509(in,NULL, OPENSSL_PEM_CB(NULL,NULL));
+        x = PEM_read_bio_X509(in, NULL, NULL, NULL);
         if (x == NULL)
         {
             if ((ERR_GET_REASON(ERR_peek_last_error()) ==
@@ -841,7 +732,7 @@ proxy_genreq(
 
     }
 
-    if (md == NULL) md = EVP_sha1();
+    if (md == NULL) md = EVP_sha256();
 
     if (!X509_REQ_sign(req,pkey,md))
     {
@@ -957,7 +848,7 @@ proxy_sign(
     EVP_MD const*                       sig_algo;
 
     sig_algo = EVP_get_digestbynid(X509_REQ_get_signature_nid(req));
-    if (sig_algo == NULL) sig_algo = EVP_sha1();
+    if (sig_algo == NULL) sig_algo = EVP_sha256();
 
     if(proxyver>=3) {
       unsigned sub_hash;
@@ -994,8 +885,8 @@ proxy_sign(
         PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_PROCESS_SIGN);
         if (proxyver >= 3) {
           free(newcn);
-	  free((void*)newserial);
-	}
+          free((void*)newserial);
+        }
         return 1;
       }
     }
@@ -1379,7 +1270,7 @@ proxy_construct_name(
     if(newcn)
     {
         if ((name_entry = X509_NAME_ENTRY_create_by_NID(NULL,
-							NID_commonName,
+                                                        NID_commonName,
                                                         V_ASN1_APP_CHOOSE,
                                                         (unsigned char *)newcn,
                                                         len)) == NULL)
@@ -1449,7 +1340,7 @@ proxy_marshal_bp(
                                      NULL,
                                      NULL,
                                      0,
-                                     OPENSSL_PEM_CB(NULL,NULL)))
+                                     NULL, NULL))
     {
         return 2;
     }
@@ -1579,7 +1470,7 @@ proxy_verify_ctx_release(
         pvxd->certdir = NULL;
     }
 }
-#if SSLEAY_VERSION_NUMBER >=  0x0090600fL
+
 /**********************************************************************
 Function: proxy_app_verify_callback()
 
@@ -1598,19 +1489,12 @@ int
 proxy_app_verify_callback(X509_STORE_CTX *ctx, UNUSED(void *empty))
 {
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    ctx->check_issued = proxy_check_issued;
-#else
     X509_STORE_set_check_issued(X509_STORE_CTX_get0_store(ctx), proxy_check_issued);
-#endif
 
-#if defined(X509_V_FLAG_ALLOW_PROXY_CERTS)
     X509_STORE_CTX_set_flags(ctx, X509_V_FLAG_ALLOW_PROXY_CERTS);
-#endif
 
     return X509_verify_cert(ctx);
 }
-#endif
 
 /* Ifdef out all extra code not needed for k5cert
  * This includes the OLDGAA
@@ -1667,10 +1551,17 @@ int proxy_verify_name(X509* cert){
 }
 
 
+#if OPENSSL_VERSION_NUMBER < 0x40000000L
 int PRIVATE
 proxy_check_issued(UNUSED(X509_STORE_CTX *  ctx),
       X509 *                              x,
       X509 *                              issuer)
+#else
+int PRIVATE
+proxy_check_issued(UNUSED(X509_STORE_CTX *  ctx),
+      const X509 *                        x,
+      const X509 *                        issuer)
+#endif
 {
   int return_value;
   int return_code = 1;
@@ -2154,10 +2045,8 @@ proxy_verify_cert_chain(
     scert = ucert;
     cert_store = X509_STORE_new();
     X509_STORE_set_verify_cb(cert_store, proxy_verify_callback);
-#if SSLEAY_VERSION_NUMBER >=  0x0090600fL
     /* override the check_issued with our version */
     X509_STORE_set_check_issued(cert_store, proxy_check_issued);
-#endif
     if (cert_chain != NULL)
     {
         int i =0;
@@ -2244,9 +2133,6 @@ Description:
     and key. If X509_USER_KEY is not defined, it will be assumed
     that the key is is the same file as the certificate.
 
-    If windows, look in the registry HKEY_CURRENT_USER for the
-    GSI_REGISTRY_DIR, then look for the x509_user_cert, etc.
-
     Then try $HOME/.globus/usercert.pem
     and $HOME/.globus/userkey.pem
         Unless it is being run as root, then look for
@@ -2286,19 +2172,6 @@ Description:
     Then on input if there is a proxy, the user_cert and user_key are set to
     use the proxy.
 
-    Smart card support using PKCS#11 is controled by the USE_PKCS11 flag.
-
-    If the filename for the user key starts with SC: then it is assumed to be
-    of the form SC:card:label where card is the name of a smart card, and label
-    is the label of the key on the card. The card must be using Cryptoki
-    (PKCS#11) This code has been developed using the DataKey implementation
-    under Windows 95.
-
-    This will allow the cert to have the same form, with the same label as well
-    in the future.
-
-
-
 Parameters:
 
 Returns:
@@ -2326,20 +2199,6 @@ proxy_get_filenames(
     char *                              default_user_key = NULL;
     char *                              default_cert_dir = NULL;
     char *                              installed_cert_dir = NULL;
-#ifdef WIN32
-    HKEY                                hkDir = NULL;
-    char                                val_user_cert[512];
-    char                                val_user_key[512];
-    char                                val_user_proxy[512];
-    char                                val_cert_dir[512];
-    char                                val_cert_file[512];
-    LONG                                lval;
-    DWORD                               type;
-#endif
-
-#ifdef WIN32
-    RegOpenKey(HKEY_CURRENT_USER,GSI_REGISTRY_DIR,&hkDir);
-#endif
 
     /* setup some default values */
     if (p_cert_dir)
@@ -2352,17 +2211,6 @@ proxy_get_filenames(
     {
         cert_dir = (char *)getenv(X509_CERT_DIR);
     }
-#ifdef WIN32
-    if (!cert_dir)
-    {
-        lval = sizeof(val_cert_dir)-1;
-        if (hkDir && (RegQueryValueEx(hkDir,"x509_cert_dir",0,&type,
-                                      val_cert_dir,&lval) == ERROR_SUCCESS))
-        {
-            cert_dir = val_cert_dir;
-        }
-    }
-#endif
     if (p_cert_file)
     {
         cert_file = *p_cert_file;
@@ -2372,17 +2220,6 @@ proxy_get_filenames(
     {
         cert_file = (char *)getenv(X509_CERT_FILE);
     }
-#ifdef WIN32
-    if (!cert_file)
-    {
-        lval = sizeof(val_cert_file)-1;
-        if (hkDir && (RegQueryValueEx(hkDir,"x509_cert_file",0,&type,
-                                      val_cert_file,&lval) == ERROR_SUCCESS))
-        {
-            cert_file = val_cert_file;
-        }
-    }
-#endif
 
     if (cert_dir == NULL)
     {
@@ -2391,13 +2228,6 @@ proxy_get_filenames(
          * If ~/.globus/certificates exists, then use that
          */
         home = getenv("HOME");
-#ifndef WIN32
-        /* Under windows use c:\windows as default home */
-        if (!home)
-        {
-            home = "c:\\windows";
-        }
-#endif /* WIN32 */
 
         if (home)
         {
@@ -2416,7 +2246,6 @@ proxy_get_filenames(
                 cert_dir = default_cert_dir;
             }
         }
-
 
         /*
          * Now check for host based default directory
@@ -2522,17 +2351,6 @@ proxy_get_filenames(
     {
         user_proxy = (char *)getenv(X509_USER_PROXY);
     }
-#ifdef WIN32
-    if (!user_proxy)
-    {
-        lval = sizeof(val_user_proxy)-1;
-        if (hkDir && (RegQueryValueEx(hkDir,"x509_user_proxy",0,&type,
-                                      val_user_proxy,&lval) == ERROR_SUCCESS))
-        {
-            user_proxy = val_user_proxy;
-        }
-    }
-#endif
     if (!user_proxy && !getenv("X509_RUN_AS_SERVER"))
     {
         default_user_proxy = snprintf_wrap("%s%s%s%lu",
@@ -2547,10 +2365,8 @@ proxy_get_filenames(
             goto err;
         }
 
-#ifndef WIN32
         if ((!proxy_in || getuid() != 0)
             && checkstat(default_user_proxy) == 0)
-#endif
         {
             user_proxy = default_user_proxy;
         }
@@ -2577,21 +2393,6 @@ proxy_get_filenames(
             user_cert = (char *)getenv(X509_USER_CERT);
         }
 
-#ifdef WIN32
-        if (!user_cert)
-        {
-            lval = sizeof(val_user_cert)-1;
-            if (hkDir && (RegQueryValueEx(
-                              hkDir,
-                              "x509_user_cert",
-                              0,
-                              &type,
-                              val_user_cert,&lval) == ERROR_SUCCESS))
-            {
-                user_cert = val_user_cert;
-            }
-        }
-#endif
         if (user_cert)
         {
             if (p_user_key)
@@ -2602,21 +2403,6 @@ proxy_get_filenames(
             {
                 user_key = (char *)getenv(X509_USER_KEY);
             }
-#ifdef WIN32
-            if (!user_key)
-            {
-                lval = sizeof(val_user_key)-1;
-                if (hkDir && (RegQueryValueEx(
-                                  hkDir,
-                                  "x509_user_key",
-                                  0,
-                                  &type,
-                                  val_user_key,&lval) == ERROR_SUCCESS))
-                {
-                    user_key = val_user_key;
-                }
-            }
-#endif
             if (!user_key)
             {
                 user_key = user_cert;
@@ -2624,7 +2410,6 @@ proxy_get_filenames(
         }
         else
         {
-#ifndef WIN32
             if (getuid() == 0)
             {
                 if (checkstat(X509_DEFAULT_HOST_CERT) != 1)
@@ -2637,7 +2422,6 @@ proxy_get_filenames(
                 }
             }
             else
-#endif
             {
                 if (!home)
                 {
@@ -2645,12 +2429,8 @@ proxy_get_filenames(
                 }
                 if (!home)
                 {
-#ifndef WIN32
                     PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_NO_HOME);
                     goto err;
-#else
-                    home = "c:\\";
-#endif
                 }
 
                 default_user_cert = snprintf_wrap("%s%s%s",
@@ -2755,12 +2535,6 @@ err:
         *p_user_key = strdup(user_key);
       }
     }
-#ifdef WIN32
-    if (hkDir)
-    {
-        RegCloseKey(hkDir);
-    }
-#endif
 
     free(default_user_proxy);
     free(installed_cert_dir);
@@ -2774,15 +2548,14 @@ err:
 Function: proxy_load_user_cert()
 
 Description:
-    loads the users cert. May need a pw callback for Smartcard PIN.
-    May use a smartcard too.
+    loads the users cert.
 
 Parameters:
 
 Returns:
 **********************************************************************/
 
-static int cert_load_pkcs12(BIO *bio, int (*pw_cb)(), X509 **cert, EVP_PKEY **key, STACK_OF(X509) **chain)
+static int cert_load_pkcs12(BIO *bio, pem_password_cb *pw_cb, X509 **cert, EVP_PKEY **key, STACK_OF(X509) **chain)
 {
   PKCS12 *p12 = NULL;
   char *password = NULL;
@@ -2798,7 +2571,7 @@ static int cert_load_pkcs12(BIO *bio, int (*pw_cb)(), X509 **cert, EVP_PKEY **ke
     int sz = 0;
 
     if (pw_cb)
-      sz = pw_cb(buffer, 1024, 0);
+      sz = pw_cb(buffer, 1024, 0, NULL);
     else
       if (EVP_read_pw_string(buffer, 1024, EVP_get_pw_prompt(), 0) != -1)
         sz = strlen(buffer);
@@ -2826,7 +2599,7 @@ int PRIVATE proxy_load_user_cert_and_key_pkcs12(const char *user_cert,
                                                 X509 **cert,
                                                 STACK_OF(X509) **stack,
                                                 EVP_PKEY **pkey,
-                                                int (*pw_cb) ())
+                                                pem_password_cb *pw_cb)
 {
   BIO *bio = BIO_new_file(user_cert, "rb");
   int res = cert_load_pkcs12(bio, pw_cb, cert, pkey, stack);
@@ -2852,9 +2625,9 @@ int PRIVATE proxy_load_user_cert_and_key_pkcs12(const char *user_cert,
 int PRIVATE
 proxy_load_user_cert(
     const char *                        user_cert,
-    X509 **                              certificate,
-    UNUSED(int                                 (*pw_cb)()),
-    UNUSED(unsigned long *                     hSession))
+    X509 **                             certificate,
+    UNUSED(pem_password_cb *            pw_cb),
+    UNUSED(unsigned long *              hSession))
 {
     int                                 status = -1;
     FILE *                              fp;
@@ -2871,51 +2644,6 @@ proxy_load_user_cert(
 
     if (!strncmp(user_cert,"SC:",3))
     {
-#ifdef USE_PKCS11
-        char * cp;
-        char * kp;
-        int rc;
-
-        cp = user_cert + 3;
-        kp = strchr(cp,':');
-        if (kp == NULL)
-        {
-            PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROBLEM_USER_NOCERT_FILE);
-            ERR_add_error_data(2, "\n        SmartCard reference=",
-                               user_cert);
-            status = PRXYERR_R_PROBLEM_USER_NOCERT_FILE;
-            goto err;
-        }
-
-        kp++; /* skip the : */
-
-        if (*hSession == 0)
-        {
-            rc = sc_init(hSession, cp, NULL, NULL, CKU_USER, 0);
-
-            if (rc)
-            {
-                PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROCESS_CERT);
-                ERR_add_error_data(
-                    1,
-                    "\n        Failed to open session to smartcard");
-                status = PRXYERR_R_PROCESS_CERT;
-                goto err;
-            }
-        }
-        rc = sc_get_cert_obj_by_label(*hSession,kp,
-                                      certificate);
-        if (rc)
-        {
-            PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROCESS_CERT);
-            ERR_add_error_data(
-                2,
-                "\n        Could not find certificate on smartcard, label=",
-                kp);
-            status = PRXYERR_R_PROCESS_CERT;
-            goto err;
-        }
-#else
         PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROCESS_CERT);
         ERR_add_error_data(
             1,
@@ -2928,7 +2656,6 @@ proxy_load_user_cert(
          * the random number generator on the card
          */
 
-#endif /* USE_PKCS11 */
     }
     else
     {
@@ -2940,9 +2667,7 @@ proxy_load_user_cert(
         goto err;
       }
 
-      if (PEM_read_X509(fp,
-                        certificate,
-                        OPENSSL_PEM_CB(NULL,NULL)) == NULL) {
+      if (PEM_read_X509(fp, certificate, NULL, NULL) == NULL) {
         if (ERR_peek_error() == ERR_PACK(ERR_LIB_PEM,PEM_F_PEM_READ_BIO,PEM_R_NO_START_LINE)) {
           ERR_clear_error();
           PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_INVALID_CERT);
@@ -2972,7 +2697,6 @@ Function: proxy_load_user_key()
 Description:
     loads the users key. Assumes the cert has been loaded,
     and checks they match.
-    May use a smartcard too.
 
 Parameters:
 
@@ -2985,24 +2709,18 @@ proxy_load_user_key(
     EVP_PKEY **                         private_key,
     X509 *                              ucert,
     const char *                        user_key,
-    int                                 (*pw_cb)(),
-    UNUSED(unsigned long *                     hSession))
+    pem_password_cb *                   pw_cb,
+    UNUSED(unsigned long *              hSession))
 {
     int                                 status = -1;
     FILE *                              fp;
     EVP_PKEY *                          ucertpkey;
-    int                                 (*xpw_cb)();
+    pem_password_cb *                   xpw_cb;
 
     if (!private_key)
       return 0;
 
     xpw_cb = pw_cb;
-#ifdef WIN32
-    if (!xpw_cb)
-    {
-        xpw_cb = read_passphrase_win32;
-    }
-#endif
 
     /* Check arguments */
     if (!user_key)
@@ -3017,47 +2735,6 @@ proxy_load_user_key(
 
     if (!strncmp(user_key,"SC:",3))
     {
-#ifdef USE_PKCS11
-        char *cp;
-        char *kp;
-        int rc;
-
-        cp = user_key + 3;
-        kp = strchr(cp,':');
-        if (kp == NULL)
-        {
-            PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROBLEM_KEY_FILE);
-            ERR_add_error_data(2,"\n        SmartCard reference=",user_key);
-            status = PRXYERR_R_PROBLEM_KEY_FILE;
-            goto err;
-        }
-        kp++; /* skip the : */
-        if (*hSession == 0)
-        {
-            rc = sc_init(hSession, cp, NULL, NULL, CKU_USER, 0);
-            if (rc)
-            {
-                PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROCESS_KEY);
-                ERR_add_error_data(
-                    1,
-                    "\n        Failed to open session to smartcard");
-                status = PRXYERR_R_PROCESS_KEY;
-                goto err;
-            }
-        }
-        rc = sc_get_priv_key_obj_by_label(hSession,kp,
-                                          private_key);
-        if (rc)
-        {
-            PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROCESS_KEY);
-            ERR_add_error_data(
-                2,
-                "\n        Could not find key on smartcard, label=",
-                kp);
-            status = PRXYERR_R_PROCESS_KEY;
-            goto err;
-        }
-#else
         PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_PROCESS_KEY);
         ERR_add_error_data(
             1,
@@ -3070,7 +2747,6 @@ proxy_load_user_key(
          * the random number generator on the card
          */
 
-#endif /* USE_PKCS11 */
     }
     else
     {
@@ -3104,9 +2780,7 @@ proxy_load_user_key(
         goto err;
       }
 
-      if (PEM_read_PrivateKey(fp,
-                              private_key,
-                              OPENSSL_PEM_CB(xpw_cb,NULL)) == NULL) {
+      if (PEM_read_PrivateKey(fp, private_key, xpw_cb, NULL) == NULL) {
         unsigned long error = ERR_peek_error();
         fclose(fp);
 
@@ -3146,81 +2820,12 @@ proxy_load_user_key(
       fclose(fp);
     }
 
-    /*
-     * check that the private key matches the certificate
-     * Dont want a mixup of keys and certs
-     * Will only check rsa type for now.
-     */
-    if (ucert)
+    // check that certificate and private key match
+    if (ucert != NULL && X509_check_private_key(ucert, *private_key) != 1)
     {
-        ucertpkey = X509_get_pubkey(ucert);
-        int mismatch = 0;
-
-        if (ucertpkey != NULL
-            && EVP_PKEY_base_id(ucertpkey) == EVP_PKEY_base_id(*private_key))
-        {
-            RSA* public_rsa = EVP_PKEY_get0_RSA(ucertpkey);
-            if (public_rsa)
-            {
-              { /* add in key as random data too */
-                BIGNUM const* p;
-                BIGNUM const* q;
-                RSA_get0_factors(public_rsa, &p, &q);
-                if(p != NULL)
-                {
-                  RAND_add(p, /* awful hack; d is the first field */
-                           BN_num_bytes(p),
-                           BN_num_bytes(p));
-                }
-                if (q != NULL)
-                {
-                  RAND_add(q, BN_num_bytes(q), BN_num_bytes(q));
-                }
-              }
-              {
-                BIGNUM const* public_n;
-                BIGNUM const* public_e;
-                RSA* private_rsa = EVP_PKEY_get0_RSA(*private_key);
-                RSA_get0_key(public_rsa, &public_n, &public_e, NULL);
-                if (public_n != NULL && private_rsa != NULL)
-                {
-                  BIGNUM const* private_n;
-                  BIGNUM const* private_e;
-                  RSA_get0_key(private_rsa, &private_n, &private_e, NULL);
-                  if (private_n != NULL && BN_num_bytes(private_n))
-                  {
-                      if (BN_cmp(public_n, private_n))
-                      {
-                          mismatch=1;
-                      }
-                  }
-                  else
-                  {
-                      int ret;
-                      BIGNUM* n = BN_dup(public_n);
-                      assert(n != NULL && "BN_dup failed");
-                      BIGNUM* e = BN_dup(public_e);
-                      assert(e != NULL && "BN_dup failed");
-                      ret = RSA_set0_key(private_rsa, n, e, NULL);
-                      assert(ret == 1 && "RSA_set0_key failed");
-                  }
-                }
-              }
-            }
-        }
-        else
-        {
-            mismatch=1;
-        }
-
-        EVP_PKEY_free(ucertpkey);
-
-        if (mismatch)
-        {
-            PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_KEY_CERT_MISMATCH);
-            status = PRXYERR_R_KEY_CERT_MISMATCH;
-            goto err;
-        }
+        PRXYerr(PRXYERR_F_INIT_CRED,PRXYERR_R_KEY_CERT_MISMATCH);
+        status = PRXYERR_R_KEY_CERT_MISMATCH;
+        goto err;
     }
 
     status = 0;
@@ -3259,7 +2864,7 @@ time_t PRIVATE
 ASN1_UTCTIME_mktime(
     ASN1_UTCTIME *                      ctm)
 {
-  char     *str;
+  const char *str;
   time_t    offset;
   time_t    newtime;
   char      buff1[32];
@@ -3268,7 +2873,7 @@ ASN1_UTCTIME_mktime(
   struct tm tm;
   int       size = 0;
 
-  switch (ctm->type) {
+  switch (ASN1_STRING_type(ctm)) {
   case V_ASN1_UTCTIME:
     size=10;
     break;
@@ -3277,8 +2882,8 @@ ASN1_UTCTIME_mktime(
     break;
   }
   p = buff1;
-  i = ctm->length;
-  str = (char *)ctm->data;
+  i = ASN1_STRING_length(ctm);
+  str = (const char*) ASN1_STRING_get0_data(ctm);
   if ((i < 11) || (i > 17)) {
     return 0;
   }
@@ -3311,7 +2916,7 @@ ASN1_UTCTIME_mktime(
 
   tm.tm_isdst = 0;
   int index = 0;
-  if (ctm->type == V_ASN1_UTCTIME) {
+  if (ASN1_STRING_type(ctm) == V_ASN1_UTCTIME) {
     tm.tm_year  = (buff1[index++]-'0')*10;
     tm.tm_year += (buff1[index++]-'0');
   }
@@ -3362,74 +2967,6 @@ ASN1_UTCTIME_mktime(
 }
 
 
-#ifdef CLASS_ADD
-
-/**********************************************************************
-Function: proxy_extension_class_add_create()
-
-Description:
-            create a X509_EXTENSION for the class_add info.
-
-Parameters:
-                A buffer and length. The date is added as
-                ANS1_OCTET_STRING to an extension with the
-                class_add  OID.
-
-Returns:
-
-**********************************************************************/
-
-X509_EXTENSION PRIVATE *
-proxy_extension_class_add_create(
-    void *                              buffer,
-    size_t                              length)
-
-{
-    X509_EXTENSION *                    ex = NULL;
-    ASN1_OBJECT *                       class_add_obj = NULL;
-    ASN1_OCTET_STRING *                 class_add_oct = NULL;
-    int                                 crit = 0;
-
-    if(!(class_add_obj = OBJ_nid2obj(OBJ_txt2nid("CLASSADD"))))
-    {
-        PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_CLASS_ADD_OID);
-        goto err;
-    }
-
-    if(!(class_add_oct = ASN1_OCTET_STRING_new()))
-    {
-        PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_CLASS_ADD_EXT);
-        goto err;
-    }
-
-    class_add_oct->data = buffer;
-    class_add_oct->length = length;
-
-    if (!(ex = X509_EXTENSION_create_by_OBJ(NULL, class_add_obj,
-                                            crit, class_add_oct)))
-    {
-        PRXYerr(PRXYERR_F_PROXY_SIGN,PRXYERR_R_CLASS_ADD_EXT);
-        goto err;
-    }
-    class_add_oct = NULL;
-
-    return ex;
-
-err:
-    if (class_add_oct)
-    {
-        ASN1_OCTET_STRING_free(class_add_oct);
-    }
-
-    if (class_add_obj)
-    {
-        ASN1_OBJECT_free(class_add_obj);
-    }
-    return NULL;
-}
-#endif
-
-
 int PRIVATE determine_filenames(char **cacert, char **certdir, char **outfile,
                                  char **certfile, char **keyfile, int noregen)
 {
@@ -3467,7 +3004,7 @@ err:
 
 int load_credentials(const char *certname, const char *keyname,
                      X509 **cert, STACK_OF(X509) **stack, EVP_PKEY **key,
-                     int (*callback)())
+                     pem_password_cb *callback)
 {
   STACK_OF(X509) *chain = NULL;
 
@@ -3476,10 +3013,7 @@ int load_credentials(const char *certname, const char *keyname,
 
   unsigned long hSession = 0;
 
-  if (!strncmp(certname, "SC:", 3))
-    EVP_set_pw_prompt("Enter card pin:");
-  else
-    EVP_set_pw_prompt("Enter GRID pass phrase for this identity:");
+  EVP_set_pw_prompt("Enter GRID pass phrase for this identity:");
 
   if (strcmp(certname + strlen(certname) - 4, ".p12")) {
     if(proxy_load_user_cert(certname, cert, callback, &hSession))
@@ -3488,9 +3022,6 @@ int load_credentials(const char *certname, const char *keyname,
     EVP_set_pw_prompt("Enter GRID pass phrase:");
 
     if (keyname) {
-      if (!strncmp(keyname, "SC:", 3))
-        EVP_set_pw_prompt("Enter card pin:");
-
       if (proxy_load_user_key(key, *cert, keyname, callback, &hSession))
         goto err;
     }
@@ -3765,7 +3296,7 @@ static X509_NAME *make_DN(const char *dnstring)
 static int check_critical_extensions(X509 *cert, int itsaproxy)
 {
   int i = 0;
-  ASN1_OBJECT *extension_obj;
+  const ASN1_OBJECT *extension_obj;
   int nid;
   X509_EXTENSION *ex;
 

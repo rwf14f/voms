@@ -25,7 +25,6 @@
 #include "config.h"
 
 extern "C" {
-#include "replace.h"
 #include "uuid.h"
 #include "doio.h"
 
@@ -805,7 +804,7 @@ void VOMSServer::Run()
             return;
           }
 
-          LOGM(VARP, logh, LEV_INFO, T_PRE, "SSL handshake completed succesfully.");
+          LOGM(VARP, logh, LEV_INFO, T_PRE, "SSL handshake completed successfully.");
 
           std::string user    = sock.peer_subject;
           std::string userca  = sock.peer_ca;
@@ -879,7 +878,7 @@ bool VOMSServer::makeAC(vomsresult& vr, EVP_PKEY *key, X509 *issuer,
 
   if (!XML_Req_Decode(message, r)) {
     LOGM(VARP, logh, LEV_ERROR, T_PRE, "Unable to interpret command: %s",message.c_str());
-    vr.setError(ERR_NO_COMMAND, "Unable to intepret command: " + message);
+    vr.setError(ERR_NO_COMMAND, "Unable to interpret command: " + message);
     return false;
   }
 
@@ -1137,9 +1136,9 @@ bool VOMSServer::makeAC(vomsresult& vr, EVP_PKEY *key, X509 *issuer,
     if (!existing.empty())
     {
       LOGM(VARP, logh, LEV_DEBUG, T_PRE,  "User comes with valid fqans for this VO. Computing fqans intersection.");
-      if (fqans.erase(remove_if(fqans.begin(),
-                                fqans.end(),
-                                bind2nd(std::ptr_fun(not_in), existing)),
+      if (fqans.erase(std::remove_if(fqans.begin(),
+                                     fqans.end(),
+                                     [&](std::string const& s) { return not_in(s, existing); }),
                       fqans.end()) != fend)
       {
         LOGM(VARP, logh, LEV_DEBUG, T_PRE,  "Only a subset of the requested attributes will be returned.");
@@ -1151,8 +1150,8 @@ bool VOMSServer::makeAC(vomsresult& vr, EVP_PKEY *key, X509 *issuer,
     {
       
       LOGM(VARP, logh, LEV_DEBUG, T_PRE,  "Dropping generic attributes for fqans which cannot be issued for current request.");
-      attribs.erase(remove_if(attribs.begin(), attribs.end(),
-                              bind2nd(std::ptr_fun(checkinside), fqans)),
+      attribs.erase(std::remove_if(attribs.begin(), attribs.end(),
+                              [&](gattrib const& a) { return checkinside(a, fqans); }),
                     attribs.end());
     }
 
